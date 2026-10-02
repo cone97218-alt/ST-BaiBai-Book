@@ -1,15 +1,20 @@
 import { openBook } from '@/state/ui';
+import { ensureIconFallback, UNICODE_BOOK_OPEN } from '@/st/iconFallback';
 
 const BTN_ID = 'bbs-qr-button';
+const STYLE_ID = 'bbs-qr-style';
 const BAR_CLASS = 'bbs-qr-bar'; // 仅当 #qr--bar 不存在时,我们自建的条加这个标记类,便于回收
 
+function ensureStyle(): void {
+  // 美化主题可能清空聊天框上方快速回复图标字形,用高特异性选择器强制还原
+  ensureIconFallback(STYLE_ID, `#send_form #${BTN_ID} .fa-solid, #${BTN_ID} .fa-solid`, UNICODE_BOOK_OPEN);
+}
+
 /**
- * 往聊天框上方注入一个「柏宝书」按钮,外观与 ST 原生快速回复按钮**完全一致**。
+ * 往聊天框上方注入一个展开书本图标按钮,外观与 ST 原生快速回复按钮**完全一致**。
  *
- * 做法照搬相邻插件 JS-Slash-Runner 的范式(src/panel/script/use_button_destination_element.ts
- * 与 Script.vue):按钮就是一个 `<div class="qr--button menu_button interactable">文字</div>`,
- * 决定外观的是 quick-reply 扩展定义的 `.qr--button` 类——挂上它即与原生按钮同款,无需图标、
- * 不写自己的样式(自己画/只蹭 menu_button 都会四不像,实测过)。
+ * 做法对齐 quick-reply 扩展定义的 `.qr--button` 与 `.qr--button-icon` 类名,
+ * 图标使用展开书本 (fa-solid fa-book-open),跟随酒馆主题美化。
  *
  * 挂载结构对齐原生:#qr--bar(已存在则复用,否则自建一个 .flex-container.flexGap5 条)
  *   └ .qr--buttons(容器)
@@ -50,7 +55,12 @@ function buildButton(): HTMLElement {
   btn.className = 'qr--button menu_button interactable';
   btn.setAttribute('tabindex', '0');
   btn.title = '打开柏宝书';
-  btn.textContent = '柏宝书';
+  btn.setAttribute('aria-label', '打开柏宝书');
+
+  const icon = document.createElement('i');
+  icon.className = 'qr--button-icon fa-solid fa-book-open';
+  btn.appendChild(icon);
+
   btn.addEventListener('click', e => {
     e.preventDefault();
     e.stopPropagation();
@@ -72,6 +82,7 @@ function tryInject(): boolean {
   if (!sendForm) return false;
   if (document.getElementById(BTN_ID)) return true;
 
+  ensureStyle();
   const holder = ensureButtonHolder(sendForm);
   holder.appendChild(buildButton());
   return true;

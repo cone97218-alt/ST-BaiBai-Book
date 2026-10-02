@@ -825,7 +825,7 @@ function exportPublicApiDocument() {
           <span class="bbs-field-label">在聊天框上方显示按钮</span>
           <input v-model="ui.showQuickReply" type="checkbox" class="bbs-checkbox" />
         </label>
-        <p class="bbs-field-hint">在输入框上方(与快速回复同位)加一个「柏宝书」按钮,跟随酒馆主题美化。</p>
+        <p class="bbs-field-hint">在输入框上方(与快速回复同位)加一个展开书本图标按钮,跟随酒馆主题美化。</p>
 
         <label class="bbs-switch-row">
           <span class="bbs-field-label">启用楼层界面</span>
