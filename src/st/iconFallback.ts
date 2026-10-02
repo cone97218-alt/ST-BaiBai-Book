@@ -8,15 +8,17 @@
  *
  * 各注入点共用此函数:传入自身按钮 id 与图标元素的选择器,生成一段一次性 <style>。
  */
-const BOOK_BOOKMARK = '\\e0bb';
+export const UNICODE_BOOK_BOOKMARK = '\\e0bb';
+export const UNICODE_BOOK_OPEN = '\\f518';
 const injected = new Set<string>();
 
 /**
  * 确保某按钮的图标兜底样式已注入(按 styleId 去重,可重复调用)。
  * @param styleId   <style> 元素的 id(去重键)
  * @param selector  命中该按钮图标 ::before 的高特异性选择器(不含 ::before)
+ * @param unicode   图标字形的 16 进制 Unicode(带转义斜杠,如 '\\f518')
  */
-export function ensureIconFallback(styleId: string, selector: string): void {
+export function ensureIconFallback(styleId: string, selector: string, unicode: string = UNICODE_BOOK_BOOKMARK): void {
   if (injected.has(styleId) || document.getElementById(styleId)) {
     injected.add(styleId);
     return;
@@ -25,7 +27,7 @@ export function ensureIconFallback(styleId: string, selector: string): void {
   style.id = styleId;
   style.textContent = `
 ${selector}::before {
-  content: '${BOOK_BOOKMARK}' !important;
+  content: '${unicode}' !important;
   width: auto !important;
   height: auto !important;
   font-size: inherit !important;
