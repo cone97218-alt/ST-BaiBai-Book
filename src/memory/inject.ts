@@ -10,7 +10,7 @@
  * 主模型因此仍能感知被隐藏的剧情。历史摘要放在聊天顶部附近,当前状态贴近最近对话。
  */
 
-import { apiSettings, engineActiveHere } from '@/api/settings';
+import { apiSettings, engineActiveHere, type ProtagonistFieldSettings, type NpcFieldSettings } from '@/api/settings';
 import type { STMessage } from '@/st/context';
 import { getContext } from '@/st/context';
 import { buildSceneLocationIndex, classifyNpcPresence, findCurrentSceneId, getLeaf, itemReachableAtScene, leafValid } from './apply';
@@ -271,6 +271,27 @@ export function renderHistoryNodesWithRelative(nodes: ViewNode[], now: string): 
     .join('\n\n');
 }
 
+/** 解析用户自定义的注入前置(上文字)/后置(下文字)或标题;支持填 <none> 完全禁用。 */
+export function resolveBriefingPrompt(custom: string | undefined, builtin: string): string {
+  if (typeof custom !== 'string') return builtin;
+  const trimmed = custom.trim();
+  if (!trimmed) return builtin;
+  if (trimmed.toLowerCase() === '<none>' || trimmed.toLowerCase() === '{{none}}') return '';
+  return trimmed;
+}
+
+/** 把内容按前置说明(上文字)、标题、主体、后置说明(下文字)装配成最终注入块。 */
+export function buildBriefingBlock(header: string, body: string): string {
+  const note = resolveBriefingPrompt(apiSettings.prompts.briefingNote, MEMORY_BRIEFING_NOTE);
+  const end = resolveBriefingPrompt(apiSettings.prompts.briefingEnd, MEMORY_BRIEFING_END);
+  const chunks: string[] = [];
+  if (note) chunks.push(note);
+  if (header) chunks.push(header);
+  if (body) chunks.push(body);
+  if (end) chunks.push(end);
+  return chunks.join('\n');
+}
+
 /** 组合历史摘要注入文本;无启用摘要时返回空串(注入空串等于清除)。 */
 export function buildHistoryInjectionText(): string {
   const chat = getContext()?.chat ?? null;
@@ -280,7 +301,9 @@ export function buildHistoryInjectionText(): string {
   if (!sums.length) return '';
   // 注入路径带相对时间前缀;参照点 = 故事内最新时间(读正文标签,不受是否已摘影响)
   // 首尾私密简报框定,避免主模型把摘要当成要复述/输出的模板
-  return `${MEMORY_BRIEFING_NOTE}\n[历史剧情摘要]\n${renderHistoryNodesWithRelative(sums, latestStoryTime(chat))}\n${MEMORY_BRIEFING_END}`;
+  const header = resolveBriefingPrompt(apiSettings.prompts.historyHeader, '[历史剧情摘要]');
+  const body = renderHistoryNodesWithRelative(sums, latestStoryTime(chat));
+  return buildBriefingBlock(header, body);
 }
 
 /**
@@ -349,15 +372,28 @@ function oneLine(s: string | undefined): string {
 }
 
 /** 主角不参与 NPC 在场分档;已有字段始终完整注入。年龄按锚点+当前故事时间推算(now)。 */
-function fmtProtagonistContext(protagonist: MemProtagonist, name: string, now: string): string {
-  const fields: Array<[string, string | undefined]> = [
+function fmtProtagonistContext(
+  protagonist: MemProtagonist,
+  name: string,
+  now: string,
+  fieldsCfg: ProtagonistFieldSettings = apiSettings.injection.protagonistFields,
+): string {
+  const fields: Array<[string, string | undefined]> = [];
+  if (fieldsCfg.gender) fields.push(['性别', protagonist.gender]);
+  if (fieldsCfg.age) fields.push(['年龄', ageDisplay(protagonist.age, protagonist.ageTime, now)]);
+  if (fieldsCfg.identity) fields.push(['身份', protagonist.identity]);
+  if (fieldsCfg.appearance) fields.push(['外貌', protagonist.appearance]);
+  if (fieldsCfg.outfit) fields.push(['着装', protagonist.outfit]);
+  if (fieldsCfg.condition) fields.push(['状态', protagonist.condition]);
+  /*
     ['性别', protagonist.gender],
     ['年龄', ageDisplay(protagonist.age, protagonist.ageTime, now)],
     ['身份', protagonist.identity],
     ['外貌', protagonist.appearance],
     ['着装', protagonist.outfit],
-    ['状态', protagonist.condition],
+    ['状态', protagonist.condition], */ /*
   ];
+*/
   const lines = fields
     .filter(([, value]) => oneLine(value))
     .map(([label, value]) => `  - ${label}:${oneLine(value)}`);
@@ -366,11 +402,11 @@ function fmtProtagonistContext(protagonist: MemProtagonist, name: string, now: s
 }
 
 /** 把 NPC 的「即时状态」(着装/状态/所在)拼成一段尾注;无则空串。供在场与主要角色组复用。 */
-function npcStateTail(n: MemNpc, withPlace: boolean): string {
+function npcStateTail(n: MemNpc, withPlace: boolean, fields: NpcFieldSettings = apiSettings.injection.npcFields): string {
   const tail: string[] = [];
-  if (oneLine(n.outfit)) tail.push(`着装:${oneLine(n.outfit)}`);
-  if (oneLine(n.condition)) tail.push(`状态:${oneLine(n.condition)}`);
-  if (withPlace) {
+  if (fields.outfit && oneLine(n.outfit)) tail.push(`着装:${oneLine(n.outfit)}`);
+  if (fields.condition && oneLine(n.condition)) tail.push(`状态:${oneLine(n.condition)}`);
+  if (withPlace && fields.location) {
     if (n.follow) tail.push('随行');
     else if (oneLine(n.location)) tail.push(`在:${oneLine(n.location)}`);
   }
@@ -401,7 +437,14 @@ function relationHead(relation: string | undefined): string {
  * **性别在所有档都发**(包括不在场),防 AI 搞错性别;关系的**称谓头**同理(把亲哥写成陌生人同级严重)。
  * 年龄按锚点+当前故事时间(now)推算后注入,时间跳跃自动长岁。无 NPC 返回空串。
  */
-function fmtNpcContext(npcs: MemNpc[], scenes: MemScene[], here: string, locationPath: string[] | undefined, now: string): string {
+function fmtNpcContext(
+  npcs: MemNpc[],
+  scenes: MemScene[],
+  here: string,
+  locationPath: string[] | undefined,
+  now: string,
+  fields: NpcFieldSettings = apiSettings.injection.npcFields,
+): string {
   if (!npcs.length) return '';
   const main: MemNpc[] = [];
   const present: MemNpc[] = [];
@@ -424,69 +467,73 @@ function fmtNpcContext(npcs: MemNpc[], scenes: MemScene[], here: string, locatio
   const lines: string[] = [];
   if (npcs.some(n => aff(n))) lines.push(NPC_AFFINITY_BRIEFING);
   const ties = fmtNpcTiesContext(npcs);
-  if (ties) lines.push(ties);
+  if (fields.relation && ties) lines.push(ties);
   if (main.length) {
     // 主要角色:状态面板优先。身份/关系留一句帮定位,外貌/性格从简(卡里通常已有),重点是即时状态。
     const detailed = main
       .map(n => {
-        const inBracket = [oneLine(n.gender), age(n), oneLine(n.title)].filter(Boolean);
+        const inBracket = [fields.gender && oneLine(n.gender), fields.age && age(n), fields.title && oneLine(n.title)].filter(Boolean);
         const head = inBracket.length ? `${n.name}(${inBracket.join('·')})` : n.name;
-        const rel = oneLine(n.relation) ? ` —— 与主角:${oneLine(n.relation)}` : '';
+        const rel = fields.relation && oneLine(n.relation) ? ` —— 与主角:${oneLine(n.relation)}` : '';
         const affinity = aff(n);
-        return `  - ${head}${rel}${affinity ? ` 〔好感估计:${affinity}〕` : ''}${npcStateTail(n, true)}`;
+        return `  - ${head}${rel}${affinity ? ` 〔好感估计:${affinity}〕` : ''}${npcStateTail(n, true, fields)}`;
       })
       .join('\n');
-    lines.push(`主要角色(核心主演,需始终保持其当前状态连贯):\n${detailed}`);
+    const h = resolveBriefingPrompt(apiSettings.prompts.mainNpcHeader, '主要角色(核心主演,需始终保持其当前状态连贯):');
+    lines.push(h ? `${h}\n${detailed}` : detailed);
   }
   if (present.length) {
     const detailed = present
       .map(n => {
         const parts = [n.name];
-        const inBracket = [oneLine(n.gender), age(n), oneLine(n.title)].filter(Boolean);
+        const inBracket = [fields.gender && oneLine(n.gender), fields.age && age(n), fields.title && oneLine(n.title)].filter(Boolean);
         if (inBracket.length) parts.push(`(${inBracket.join('·')})`);
         const profile: string[] = [];
-        if (oneLine(n.relation)) profile.push(`与主角:${oneLine(n.relation)}`);
+        if (fields.relation && oneLine(n.relation)) profile.push(`与主角:${oneLine(n.relation)}`);
         const affinity = aff(n);
         if (affinity) profile.push(`好感估计:${affinity}`);
-        if (oneLine(n.personality)) profile.push(`性格:${oneLine(n.personality)}`);
-        if (oneLine(n.desc)) profile.push(oneLine(n.desc));
+        if (fields.personality && oneLine(n.personality)) profile.push(`性格:${oneLine(n.personality)}`);
+        if (fields.desc && oneLine(n.desc)) profile.push(oneLine(n.desc));
         const profileStr = profile.length ? ` —— ${profile.join(';')}` : '';
-        const place = n.follow ? ' [随行]' : '';
-        return `  - ${parts.join('')}${place}${profileStr}${npcStateTail(n, false)}`;
+        const place = (fields.location && n.follow) ? ' [随行]' : '';
+        return `  - ${parts.join('')}${place}${profileStr}${npcStateTail(n, false, fields)}`;
       })
       .join('\n');
-    lines.push(`在场角色:\n${detailed}`);
+    const h = resolveBriefingPrompt(apiSettings.prompts.presentNpcHeader, '在场角色:');
+    lines.push(h ? `${h}\n${detailed}` : detailed);
   }
   if (nearby.length) {
     // 同区域:名 + 性别 + 年龄 + 身份 + 关系 + 性格 + 所在地;砍掉外貌/人际/即时状态。留性格以稳住临时出场时的人设。
     const brief = nearby
       .map(n => {
-        const inBracket = [oneLine(n.gender), age(n), oneLine(n.title)].filter(Boolean);
+        const inBracket = [fields.gender && oneLine(n.gender), fields.age && age(n), fields.title && oneLine(n.title)].filter(Boolean);
         const bracket = inBracket.length ? `(${inBracket.join('·')})` : '';
         const profile: string[] = [];
-        if (oneLine(n.relation)) profile.push(`与主角:${oneLine(n.relation)}`);
+        if (fields.relation && oneLine(n.relation)) profile.push(`与主角:${oneLine(n.relation)}`);
         const affinity = aff(n);
         if (affinity) profile.push(`好感估计:${affinity}`);
-        if (oneLine(n.personality)) profile.push(`性格:${oneLine(n.personality)}`);
+        if (fields.personality && oneLine(n.personality)) profile.push(`性格:${oneLine(n.personality)}`);
         const pers = profile.length ? ` —— ${profile.join(';')}` : '';
-        const place = oneLine(n.location) ? ` [在:${oneLine(n.location)}]` : '';
+        const place = (fields.location && oneLine(n.location)) ? ` [在:${oneLine(n.location)}]` : '';
         return `  - ${n.name}${bracket}${pers}${place}`;
       })
       .join('\n');
-    lines.push(`同区域角色(在附近但未必照面;需要时可让其自然登场,勿凭空改设定):\n${brief}`);
+    const h = resolveBriefingPrompt(apiSettings.prompts.nearbyNpcHeader, '同区域角色(在附近但未必照面;需要时可让其自然登场,勿凭空改设定):');
+    lines.push(h ? `${h}\n${brief}` : brief);
   }
   if (absent.length) {
     // 不在场:仅名 + 性别 + 关系称谓 + 身份 + 好感档位,按所在地括注;无外貌/性格/状态
     const brief = absent
       .map(n => {
-        const inBracket = [oneLine(n.gender), relationHead(n.relation), oneLine(n.title)].filter(Boolean);
+        const inBracket = [fields.gender && oneLine(n.gender), fields.relation && relationHead(n.relation), fields.title && oneLine(n.title)].filter(Boolean);
         const bracket = inBracket.length ? `(${inBracket.join('·')})` : '';
-        const loc = oneLine(n.location);
+        const loc = fields.location ? oneLine(n.location) : '';
         const affinity = aff(n, false, false);
         return `  - ${n.name}${bracket}${loc ? ` [在:${loc}]` : ''}${affinity ? ` 〔好感估计:${affinity}〕` : ''}`;
       })
       .join('\n');
-    lines.push(`其他已知角色(不在当前场景,简要名册):\n${brief}`);
+    const h = resolveBriefingPrompt(apiSettings.prompts.absentNpcHeader, '其他已知角色(不在当前场景,简要名册):');
+    lines.push(h ? `${h}\n${brief}` : brief);
   }
   return lines.join('\n');
 }
@@ -589,8 +636,11 @@ export function buildStateInjectionText(): string {
 
   // 主角状态自包含,不依赖场景树,独立开关。
   if (inj.protagonist) {
-    const protagonistBlock = fmtProtagonistContext(memory.protagonist, getContext()?.name1 ?? '', memory.state.time);
-    if (protagonistBlock) st.push(`[主角当前状态]\n${protagonistBlock}`);
+    const protagonistBlock = fmtProtagonistContext(memory.protagonist, getContext()?.name1 ?? '', memory.state.time, inj.protagonistFields);
+    if (protagonistBlock) {
+      const h = resolveBriefingPrompt(apiSettings.prompts.protagonistHeader, '[主角当前状态]');
+      st.push(h ? `${h}\n${protagonistBlock}` : protagonistBlock);
+    }
   }
 
   const here = memory.state.location || '';
@@ -609,8 +659,11 @@ export function buildStateInjectionText(): string {
 
   // NPC 名册四档:在场发全量;同区域发名+身份+性格+所在地;不在场只发名+身份。NPC 越多省得越多。
   if (npcsOn) {
-    const npcBlock = fmtNpcContext(memory.npcs, memory.scenes, here, locPath, memory.state.time);
-    if (npcBlock) st.push(`NPC名册:\n${npcBlock}`);
+    const npcBlock = fmtNpcContext(memory.npcs, memory.scenes, here, locPath, memory.state.time, inj.npcFields);
+    if (npcBlock) {
+      const h = resolveBriefingPrompt(apiSettings.prompts.npcsHeader, 'NPC名册:');
+      st.push(h ? `${h}\n${npcBlock}` : npcBlock);
+    }
   }
 
   const openPlans = memory.plans
@@ -643,7 +696,8 @@ export function buildStateInjectionText(): string {
   const hasState = memory.state.time || memory.state.location || (inj.sceneFocus && memory.state.sceneFocus) || hasProtagonist || (itemsOn && memory.items.length) || (scenesOn && memory.scenes.length) || (npcsOn && memory.npcs.length) || openPlans.length || hasVarState || (inj.lifeDetails && memory.lifeDetails.length);
   if (!hasState) return '';
   // 首尾私密简报框定,避免主模型把状态快照当成要复述/输出的模板(正文后跟吐一份状态)
-  return `${MEMORY_BRIEFING_NOTE}\n[当前状态]\n${st.join('\n')}\n${MEMORY_BRIEFING_END}`;
+  const header = resolveBriefingPrompt(apiSettings.prompts.stateHeader, '[当前状态]');
+  return buildBriefingBlock(header, st.join('\n'));
 }
 
 /**

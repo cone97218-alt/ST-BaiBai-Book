@@ -15,6 +15,8 @@ import {
   RESUMMARY_PROMPT,
   SUMMARY_MACROS,
   SUMMARY_PROMPT,
+  MEMORY_BRIEFING_NOTE,
+  MEMORY_BRIEFING_END,
   type PromptMacro,
 } from '@/memory/prompts';
 import { TIME_TAG_PROMPT } from '@/memory/timeTag';
@@ -243,7 +245,7 @@ function closeModelMenuSoon() {
 }
 
 /* —— 自定义提示词:列表(摘要/总结/破限/时间标签),点开在弹窗里编辑大文本 —— */
-type PromptKey = 'summary' | 'resummary' | 'resummary2' | 'jailbreak' | 'timeTag';
+type PromptKey = keyof typeof apiSettings.prompts;
 interface PromptMeta {
   key: PromptKey;
   label: string;
@@ -285,6 +287,76 @@ const PROMPT_METAS: PromptMeta[] = [
     label: '固定提示词(时间标签)',
     hint: '注入主对话,要求 AI 每条正文前后输出时间标签,作为剧情时间锚点(摘要与新剧情据此对齐,不再错乱)。需开启下方「正文时间标签」开关。留空用内置默认。',
     builtin: TIME_TAG_PROMPT,
+    macros: [],
+  },
+  {
+    key: 'briefingNote',
+    label: '注入前置提示(上文字)',
+    hint: '包裹在历史摘要、当前状态等记忆块最前方的系统说明。留空用内置默认；输入 <none> 则完全不发送。',
+    builtin: MEMORY_BRIEFING_NOTE,
+    macros: [],
+  },
+  {
+    key: 'briefingEnd',
+    label: '注入后置提示(下文字)',
+    hint: '包裹在记忆块末尾的收尾提示词。用于引导 AI 自然续写而不要复述。留空用内置默认；输入 <none> 则完全不发送。',
+    builtin: MEMORY_BRIEFING_END,
+    macros: [],
+  },
+  {
+    key: 'historyHeader',
+    label: '历史摘要标题(上文字)',
+    hint: '历史摘要正文上方的标题文字。默认为 [历史剧情摘要]；留空用内置默认；输入 <none> 则完全不输出。',
+    builtin: '[历史剧情摘要]',
+    macros: [],
+  },
+  {
+    key: 'stateHeader',
+    label: '当前状态标题(上文字)',
+    hint: '当前客观状态块正文上方的标题文字。默认为 [当前状态]；留空用内置默认；输入 <none> 则完全不输出。',
+    builtin: '[当前状态]',
+    macros: [],
+  },
+  {
+    key: 'protagonistHeader',
+    label: '主角状态标题',
+    hint: '主角状态列表上方的标题文字。默认为 [主角当前状态]；留空用内置默认；输入 <none> 则完全不输出标题。',
+    builtin: '[主角当前状态]',
+    macros: [],
+  },
+  {
+    key: 'npcsHeader',
+    label: 'NPC名册总标题',
+    hint: 'NPC名册模块上方的总标题文字。默认为 NPC名册:；留空用内置默认；输入 <none> 则完全不输出总标题。',
+    builtin: 'NPC名册:',
+    macros: [],
+  },
+  {
+    key: 'mainNpcHeader',
+    label: '主要角色组标题',
+    hint: '主要角色列表上方的标题文字。默认为 主要角色(核心主演,需始终保持其当前状态连贯):；留空用内置默认；输入 <none> 则完全不输出标题。',
+    builtin: '主要角色(核心主演,需始终保持其当前状态连贯):',
+    macros: [],
+  },
+  {
+    key: 'presentNpcHeader',
+    label: '在场角色组标题',
+    hint: '在场角色列表上方的标题文字。默认为 在场角色:；留空用内置默认；输入 <none> 则完全不输出标题。',
+    builtin: '在场角色:',
+    macros: [],
+  },
+  {
+    key: 'nearbyNpcHeader',
+    label: '同区域角色组标题',
+    hint: '同区域角色列表上方的标题文字。默认为 同区域角色(在附近但未必照面;需要时可让其自然登场,勿凭空改设定):；留空用内置默认；输入 <none> 则完全不输出标题。',
+    builtin: '同区域角色(在附近但未必照面;需要时可让其自然登场,勿凭空改设定):',
+    macros: [],
+  },
+  {
+    key: 'absentNpcHeader',
+    label: '不在场角色组标题',
+    hint: '其他已知角色列表上方的标题文字。默认为 其他已知角色(不在当前场景,简要名册):；留空用内置默认；输入 <none> 则完全不输出标题。',
+    builtin: '其他已知角色(不在当前场景,简要名册):',
     macros: [],
   },
 ];
@@ -1020,7 +1092,33 @@ function exportPublicApiDocument() {
           <span class="bbs-field-label">主角信息</span>
           <input v-model="apiSettings.injection.protagonist" type="checkbox" class="bbs-checkbox" :disabled="apiSettings.summaryOnlyMode" />
         </label>
-        <p class="bbs-field-hint">主角当前状态:性别、年龄、身份、外貌、着装、状态。自包含,不依赖场景信息。</p>
+        <p class="bbs-field-hint">主角当前状态。自包含,不依赖场景信息。可在下方勾选要注入的字段:</p>
+        <div v-if="apiSettings.injection.protagonist && !apiSettings.summaryOnlyMode" class="bbs-field-pills">
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.protagonistFields.outfit" type="checkbox" />
+            <span>着装</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.protagonistFields.condition" type="checkbox" />
+            <span>状态</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.protagonistFields.appearance" type="checkbox" />
+            <span>外貌</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.protagonistFields.identity" type="checkbox" />
+            <span>身份</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.protagonistFields.gender" type="checkbox" />
+            <span>性别</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.protagonistFields.age" type="checkbox" />
+            <span>年龄</span>
+          </label>
+        </div>
 
         <label class="bbs-switch-row">
           <span class="bbs-field-label">场景信息</span>
@@ -1032,7 +1130,45 @@ function exportPublicApiDocument() {
           <span class="bbs-field-label">NPC 名册</span>
           <input v-model="apiSettings.injection.npcs" type="checkbox" class="bbs-checkbox" :disabled="apiSettings.summaryOnlyMode || !apiSettings.injection.scenes" />
         </label>
-        <p class="bbs-field-hint">在场角色全量、同区域从简、不在场仅名与身份;依赖场景信息。</p>
+        <p class="bbs-field-hint">在场角色全量、同区域从简、不在场仅名与身份;依赖场景信息。可在下方勾选要注入的字段:</p>
+        <div v-if="apiSettings.injection.npcs && apiSettings.injection.scenes && !apiSettings.summaryOnlyMode" class="bbs-field-pills">
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.npcFields.outfit" type="checkbox" />
+            <span>着装</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.npcFields.condition" type="checkbox" />
+            <span>状态</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.npcFields.location" type="checkbox" />
+            <span>所在/随行</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.npcFields.personality" type="checkbox" />
+            <span>性格</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.npcFields.desc" type="checkbox" />
+            <span>外貌描述</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.npcFields.title" type="checkbox" />
+            <span>身份</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.npcFields.relation" type="checkbox" />
+            <span>关系与人际</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.npcFields.gender" type="checkbox" />
+            <span>性别</span>
+          </label>
+          <label class="bbs-pill-checkbox">
+            <input v-model="apiSettings.injection.npcFields.age" type="checkbox" />
+            <span>年龄</span>
+          </label>
+        </div>
 
         <label class="bbs-switch-row">
           <span class="bbs-field-label">角色好感估计</span>
@@ -1940,6 +2076,32 @@ function exportPublicApiDocument() {
 </template>
 
 <style scoped>
+.bbs-field-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 4px 0 10px 0;
+  padding: 8px 12px;
+  background: var(--bbs-c-bg-subtle, rgba(0, 0, 0, 0.03));
+  border-radius: 6px;
+  border: 1px solid var(--bbs-c-border-subtle, rgba(0, 0, 0, 0.06));
+}
+.bbs-pill-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--bbs-c-text-subtle, #555);
+}
+.bbs-pill-checkbox input[type="checkbox"] {
+  cursor: pointer;
+  margin: 0;
+}
+.bbs-pill-checkbox:hover {
+  color: var(--bbs-c-text, #111);
+}
 .bbs-page {
   display: flex;
   flex-direction: column;

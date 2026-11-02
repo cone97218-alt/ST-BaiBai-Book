@@ -60,6 +60,26 @@ export interface CustomPrompts {
   jailbreak: string;
   /** 固定提示词(时间标签):注入**主对话**模型,要求每条正文前后输出时间标签;空=用内置默认。 */
   timeTag: string;
+  /** 记忆注入前置说明(上文字):包裹在历史摘要、当前状态等记忆块最前。留空用内置默认,填 <none> 则完全不发送。 */
+  briefingNote: string;
+  /** 记忆注入后置说明(下文字):包裹在记忆块最后。留空用内置默认,填 <none> 则完全不发送。 */
+  briefingEnd: string;
+  /** 历史摘要标题文字:默认为 [历史剧情摘要]。留空用默认,填 <none> 则不输出。 */
+  historyHeader: string;
+  /** 当前状态标题文字:默认为 [当前状态]。留空用默认,填 <none> 则不输出。 */
+  stateHeader: string;
+  /** 主角状态标题:默认为 [主角当前状态]。留空用默认,填 <none> 则完全不输出。 */
+  protagonistHeader: string;
+  /** NPC名册总标题:默认为 NPC名册:。留空用默认,填 <none> 则完全不输出。 */
+  npcsHeader: string;
+  /** 主要角色组标题:默认为 主要角色(核心主演,需始终保持其当前状态连贯):。留空用默认,填 <none> 则完全不输出。 */
+  mainNpcHeader: string;
+  /** 在场角色组标题:默认为 在场角色:。留空用默认,填 <none> 则完全不输出。 */
+  presentNpcHeader: string;
+  /** 同区域角色组标题:默认为 同区域角色(在附近但未必照面;需要时可让其自然登场,勿凭空改设定):。留空用默认,填 <none> 则完全不输出。 */
+  nearbyNpcHeader: string;
+  /** 其他已知角色(不在场)组标题:默认为 其他已知角色(不在当前场景,简要名册):。留空用默认,填 <none> 则完全不输出。 */
+  absentNpcHeader: string;
 }
 
 /**
@@ -155,6 +175,33 @@ export interface UiPrefs {
 export type Verbosity = 'detailed' | 'concise';
 
 /**
+ * 主角状态细分注入开关。
+ */
+export interface ProtagonistFieldSettings {
+  gender: boolean;
+  age: boolean;
+  identity: boolean;
+  appearance: boolean;
+  outfit: boolean;
+  condition: boolean;
+}
+
+/**
+ * NPC 名册细分注入开关。
+ */
+export interface NpcFieldSettings {
+  gender: boolean;
+  age: boolean;
+  title: boolean;
+  relation: boolean;
+  personality: boolean;
+  desc: boolean;
+  outfit: boolean;
+  condition: boolean;
+  location: boolean;
+}
+
+/**
  * 注入设置:各状态块是否注入**主模型**(生成正文的请求)。
  * 只影响 buildStateInjectionText;副 API 摘要始终看到全量状态、照常记录(防重复记录),不受此影响。
  * 依赖关系:NPC 名册的在场分档与物品清单的可达判定都走场景树,
@@ -167,8 +214,12 @@ export interface InjectionSections {
   lifeDetails: boolean;
   /** 主角当前状态(性别/年龄/外貌/着装/状态) */
   protagonist: boolean;
+  /** 主角状态各字段细分开关(着装/状态/外貌/身份/性别/年龄) */
+  protagonistFields: ProtagonistFieldSettings;
   /** NPC 名册(依赖场景信息) */
   npcs: boolean;
+  /** NPC 各字段细分开关(着装/状态/所在/性格/描述/身份/关系/性别/年龄) */
+  npcFields: NpcFieldSettings;
   /** NPC 名册内的五档好感估计(内心好感/外在态度/说明);关闭后名册照发,只是不附带好感。
    *  适合角色卡自带好感系统、不想两套并行的场合。仅控制注入,记录与页面展示始终开启。 */
   npcAffinity: boolean;
@@ -318,7 +369,7 @@ function defaults(): ApiSettings {
       orbOpacity: 62,
       orbSize: 48,
     },
-    prompts: { summary: '', resummary: '', resummary2: '', jailbreak: '', timeTag: '' },
+    prompts: { summary: '', resummary: '', resummary2: '', jailbreak: '', timeTag: '', briefingNote: '', briefingEnd: '', historyHeader: '', stateHeader: '', protagonistHeader: '', npcsHeader: '', mainNpcHeader: '', presentNpcHeader: '', nearbyNpcHeader: '', absentNpcHeader: '' },
     verbosity: 'detailed',
     vector: {
       enabled: false,
@@ -342,7 +393,17 @@ function defaults(): ApiSettings {
     assignments: { summary: '', resummary: '' },
     autoSummaryEnabled: true,
     summaryOnlyMode: false,
-    injection: { sceneFocus: true, lifeDetails: true, protagonist: true, npcs: true, npcAffinity: true, items: true, scenes: true },
+    injection: {
+      sceneFocus: true,
+      lifeDetails: true,
+      protagonist: true,
+      protagonistFields: { gender: true, age: true, identity: true, appearance: true, outfit: true, condition: true },
+      npcs: true,
+      npcFields: { gender: true, age: true, title: true, relation: true, personality: true, desc: true, outfit: true, condition: true, location: true },
+      npcAffinity: true,
+      items: true,
+      scenes: true,
+    },
     keepRecent: 3,
     excludedChars: [],
     excludedWorldNames: [],
@@ -413,11 +474,32 @@ function normalize(raw: unknown): ApiSettings {
     typeof merged.renderWorldInfoTemplates === 'boolean' ? merged.renderWorldInfoTemplates : true;
   // 注入设置:嵌套对象,逐字段兜底(老数据没有 injection 键时全回退 true = 老行为不变)
   const ri = ((raw as Partial<ApiSettings>).injection ?? {}) as Partial<InjectionSections>;
+  const rpf = (ri.protagonistFields ?? {}) as Partial<ProtagonistFieldSettings>;
+  const rnf = (ri.npcFields ?? {}) as Partial<NpcFieldSettings>;
   merged.injection = {
     sceneFocus: typeof ri.sceneFocus === 'boolean' ? ri.sceneFocus : true,
     lifeDetails: typeof ri.lifeDetails === 'boolean' ? ri.lifeDetails : true,
     protagonist: typeof ri.protagonist === 'boolean' ? ri.protagonist : true,
+    protagonistFields: {
+      gender: typeof rpf.gender === 'boolean' ? rpf.gender : true,
+      age: typeof rpf.age === 'boolean' ? rpf.age : true,
+      identity: typeof rpf.identity === 'boolean' ? rpf.identity : true,
+      appearance: typeof rpf.appearance === 'boolean' ? rpf.appearance : true,
+      outfit: typeof rpf.outfit === 'boolean' ? rpf.outfit : true,
+      condition: typeof rpf.condition === 'boolean' ? rpf.condition : true,
+    },
     npcs: typeof ri.npcs === 'boolean' ? ri.npcs : true,
+    npcFields: {
+      gender: typeof rnf.gender === 'boolean' ? rnf.gender : true,
+      age: typeof rnf.age === 'boolean' ? rnf.age : true,
+      title: typeof rnf.title === 'boolean' ? rnf.title : true,
+      relation: typeof rnf.relation === 'boolean' ? rnf.relation : true,
+      personality: typeof rnf.personality === 'boolean' ? rnf.personality : true,
+      desc: typeof rnf.desc === 'boolean' ? rnf.desc : true,
+      outfit: typeof rnf.outfit === 'boolean' ? rnf.outfit : true,
+      condition: typeof rnf.condition === 'boolean' ? rnf.condition : true,
+      location: typeof rnf.location === 'boolean' ? rnf.location : true,
+    },
     npcAffinity: typeof ri.npcAffinity === 'boolean' ? ri.npcAffinity : true,
     items: typeof ri.items === 'boolean' ? ri.items : true,
     scenes: typeof ri.scenes === 'boolean' ? ri.scenes : true,

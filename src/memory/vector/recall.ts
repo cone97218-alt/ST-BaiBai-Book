@@ -18,7 +18,7 @@ import { apiSettings, engineActiveHere } from '@/api/settings';
 import type { VecHit } from '@/api/baibaoku';
 import { vecSearch } from './store';
 import { getLeaf, leafValid } from '../apply';
-import { MEMORY_BRIEFING_NOTE, MEMORY_BRIEFING_END } from '../prompts';
+import { buildBriefingBlock } from '../inject';
 import { embedTexts, encodeFloat32Base64, rerankDocuments } from './embed';
 import { rewriteQuery } from './rewrite';
 import { ensureRecallIndex } from './index';
@@ -434,7 +434,7 @@ function buildRecallText(
   const chunks = [...fullChunks, ...briefChunks];
   if (!chunks.length) return { text: '', tiers };
   // 首尾私密简报框定,避免主模型把召回回忆当成要复述/输出的模板
-  return { text: `${MEMORY_BRIEFING_NOTE}\n[相关回忆]\n${chunks.join('\n\n')}\n${MEMORY_BRIEFING_END}`, tiers };
+  return { text: buildBriefingBlock('[相关回忆]', chunks.join('\n\n')), tiers };
 }
 
 /**
