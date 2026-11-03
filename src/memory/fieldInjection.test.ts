@@ -4,7 +4,7 @@ import * as context from '@/st/context';
 import type { STContext, STMessage } from '@/st/context';
 import { memory } from './store';
 import { createEmptyMemory, type MemNpc, type MemProtagonist, type MemScene } from './types';
-import { buildStateInjectionText } from './inject';
+import { buildStateInjectionText, crossDaySpanWithRelative, renderHistoryNodesWithRelative, type ViewNode } from './inject';
 
 function useChat(chat: STMessage[]) {
   const ctx = {
@@ -204,5 +204,42 @@ describe('角色属性细粒度注入测试', () => {
     // 依然包含主角和艾琳的内容
     expect(textClean).toContain('林舟:');
     expect(textClean).toContain('艾琳');
+  });
+
+  it('单楼发生跨日时间跳跃时，分别标注起止两端的相对时间与周几', () => {
+    const now = '2026/7/13 18:00';
+    // 同日：维持单一相对时间前缀 + 压缩时间
+    const sameDayLeaf: ViewNode = {
+      kind: 'leaf',
+      id: 'leaf-1',
+      text: '主角在酒馆调查线索。',
+      timeStart: '2026/7/10 10:00',
+      timeEnd: '2026/7/10 12:00',
+      timeLabel: '2026/7/10 10:00 - 2026/7/10 12:00',
+      level: 0,
+      floorLo: 1,
+      floorHi: 1,
+    };
+    const sameDayOut = renderHistoryNodesWithRelative([sameDayLeaf], now);
+    expect(sameDayOut).toBe('【(大前天·周五) 2026/7/10 10:00 - 12:00】主角在酒馆调查线索。');
+
+    // 跨日时间跳跃（7月10日跳至7月13日）：起止两端各自带相对时间与完整日期
+    const jumpLeaf: ViewNode = {
+      kind: 'leaf',
+      id: 'leaf-2',
+      text: '主角于7月10日启程，历经三天旅途于7月13日抵达王都。',
+      timeStart: '2026/7/10 10:00',
+      timeEnd: '2026/7/13 18:00',
+      timeLabel: '2026/7/10 10:00 - 2026/7/13 18:00',
+      level: 0,
+      floorLo: 2,
+      floorHi: 2,
+    };
+    const jumpOut = renderHistoryNodesWithRelative([jumpLeaf], now);
+    expect(jumpOut).toBe('【2026/7/10 10:00(大前天·周五) - 2026/7/13 18:00(今天·周一)】主角于7月10日启程，历经三天旅途于7月13日抵达王都。');
+    expect(crossDaySpanWithRelative('2026/7/10 10:00', '2026/7/10 22:00', now)).toBe('');
+    expect(crossDaySpanWithRelative('2026/7/10 10:00', '2026/7/13 18:00', now)).toBe(
+      '2026/7/10 10:00(大前天·周五) - 2026/7/13 18:00(今天·周一)',
+    );
   });
 });

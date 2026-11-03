@@ -7,7 +7,7 @@ import { apiSettings } from '@/api/settings';
 import { batchBackfill, batchState, cancelBatchBackfill, engineState, floorBackfillState, isAiFloor, resummarizeNow, summarizeFloor, summarizeSelected, syncHiddenNow } from '@/memory/engine';
 import { estimateInjectionTokenBreakdown, refreshInjection, selectViewNodes, type ViewNode } from '@/memory/inject';
 import { compactTimeLabel, formatRange, splitTimeLabel } from '@/memory/timeTag';
-import { relativeTimeLabel, weekdayLabel } from '@/memory/timeRel';
+import { calculateRelativeDays, relativeTimeLabel, weekdayLabel } from '@/memory/timeRel';
 import { derivedMeta, memory, recomputeDerived } from '@/memory/store';
 import type { SceneFocus } from '@/memory/types';
 import { getContext } from '@/st/context';
@@ -700,9 +700,19 @@ function rowTime(r: SummaryRow): string {
 /** 行的相对时间前缀(如「昨天·周三」):仅叶子(单楼摘要)显示;总结跨多楼、相对时间无意义,返回空串 */
 function rowRelative(r: SummaryRow): string {
   if (r.kind !== 'leaf') return '';
-  const event = r.timeEnd || r.timeStart || (r.timeLabel ? splitTimeLabel(r.timeLabel).end : '') || '';
+  const now = derivedMeta.latestStoryTime;
+  const fallback = r.timeLabel ? splitTimeLabel(r.timeLabel) : { start: undefined, end: undefined };
+  const start = (r.timeStart || fallback.start || '').trim();
+  const end = (r.timeEnd || fallback.end || '').trim();
+  const days = start && end ? calculateRelativeDays(start, end) : null;
+  if (days !== null && days !== 0) {
+    const startRel = [relativeTimeLabel(start, now), weekdayLabel(start)].filter(Boolean).join('·');
+    const endRel = [relativeTimeLabel(end, now), weekdayLabel(end)].filter(Boolean).join('·');
+    if (startRel && endRel && startRel !== endRel) return `${startRel} - ${endRel}`;
+  }
+  const event = end || start;
   // 周几并入相对前缀(标准公历带年份才有);与注入端口径一致
-  return [relativeTimeLabel(event, derivedMeta.latestStoryTime), weekdayLabel(event)].filter(Boolean).join('·');
+  return [relativeTimeLabel(event, now), weekdayLabel(event)].filter(Boolean).join('·');
 }
 
 // 当前时间:优先读正文标签实时算出的「故事内最新时间」(不受最新楼是否已摘影响);

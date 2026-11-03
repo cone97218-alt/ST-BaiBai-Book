@@ -18,14 +18,14 @@ import { apiSettings, engineActiveHere } from '@/api/settings';
 import type { VecHit } from '@/api/baibaoku';
 import { vecSearch } from './store';
 import { getLeaf, leafValid } from '../apply';
-import { buildBriefingBlock } from '../inject';
+import { buildBriefingBlock, crossDaySpanWithRelative } from '../inject';
 import { embedTexts, encodeFloat32Base64, rerankDocuments } from './embed';
 import { rewriteQuery } from './rewrite';
 import { ensureRecallIndex } from './index';
 import { currentBundleHashes, currentChatId, currentChatScope, currentVectorDb, recallScopes } from './scope';
 import { isAiFloor, resolveKeepStart } from '../engine';
 import { cleanBody, compactTimeLabel, latestStoryTime, splitTimeLabel } from '../timeTag';
-import { relativeTimeLabel } from '../timeRel';
+import { calculateRelativeDays, relativeTimeLabel } from '../timeRel';
 import { normalizeRecallInjectionDepth } from './depth';
 import { RECALL_CACHE_STORAGE_KEY } from './cache';
 import {
@@ -446,6 +446,9 @@ function buildRecallText(
 function fmtStoryTimeHead(storyTime: string, now: string): string {
   const t = storyTime.trim();
   if (!t) return '';
+  const { start: spanStart, end: spanEnd } = splitTimeLabel(t);
+  const span = crossDaySpanWithRelative(spanStart ?? '', spanEnd ?? '', now);
+  if (span) return `【${span}】`;
   const shown = compactTimeLabel(t);
   const end = splitTimeLabel(t).end ?? '';
   const rel = relativeTimeLabel(end, now);
@@ -461,7 +464,17 @@ function fmtChunk(h: RankedHit, body: string, bodyHasInlineTime: boolean, selfSc
   if (bodyHasInlineTime) {
     // 全文自身保留原始起止时间标签，但仍需在全文前补充相对时间，
     // 避免全文档与摘要档在时间感知上表现不一致。
-    const end = splitTimeLabel((h.storyTime || '').trim()).end ?? '';
+    const { start: spanStart, end: spanEnd } = splitTimeLabel((h.storyTime || '').trim());
+
+    const s = (spanStart ?? '').trim();
+    const e = (spanEnd ?? '').trim();
+    const days = s && e ? calculateRelativeDays(s, e) : null;
+    if (days !== null && days !== 0) {
+      const relS = relativeTimeLabel(s, now);
+      const relE = relativeTimeLabel(e, now);
+      if (relS && relE && relS !== relE) return `${src}【${relS} - ${relE}】 ${body}`;
+    }
+    const end = spanEnd ?? '';
     const rel = relativeTimeLabel(end, now);
     return rel ? `${src}【${rel}】 ${body}` : `${src} ${body}`;
   }

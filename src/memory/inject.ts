@@ -247,6 +247,20 @@ function nodeRangeWithRelative(n: ViewNode, now: string): string {
 }
 
 /**
+ * 跨日跳跃的起止区间(例如 7/10 → 7/13):起止分别相对同一个 now 标注,
+ * 避免只拿结束端算相对时间,让模型把起始日发生的事误当成「今天」。
+ * 起止同日、缺一端或无法判定天数差(架空历等)时返回空串,调用方沿用单相对时间。
+ */
+export function crossDaySpanWithRelative(start: string, end: string, now: string): string {
+  const s = start.trim();
+  const e = end.trim();
+  if (!s || !e || s === e) return '';
+  const days = calculateRelativeDays(s, e);
+  if (days === null || days === 0) return '';
+  return `${timePointWithRelative(s, now)} - ${timePointWithRelative(e, now)}`;
+}
+
+/**
  * 主对话注入/公开历史宏使用:为历史节点补相对时间,帮模型感知剧情距离。
  * 参照点 now = 故事内最新时间;无法解析相对差的(架空纪年等)降级为只显示绝对时间。
  * 不并入 renderHistoryNodes —— 后者被摘要模型等副任务复用,截止点和参照点不同。
@@ -264,6 +278,10 @@ export function renderHistoryNodesWithRelative(nodes: ViewNode[], now: string): 
       }
       const t = nodeTime(n);
       if (!t) return n.text;
+      // 单楼内发生跨日时间跳跃:起止两端各自标注相对时间,而不是只按结束端算
+      const { start, end } = nodeTimeRange(n);
+      const span = crossDaySpanWithRelative(start, end, now);
+      if (span) return `【${span}】${n.text}`;
       const event = nodeEventTime(n);
       const parts = [relativeTimeLabel(event, now), weekdayLabel(event)].filter(Boolean);
       return parts.length ? `【(${parts.join('·')}) ${t}】${n.text}` : `【${t}】${n.text}`;
