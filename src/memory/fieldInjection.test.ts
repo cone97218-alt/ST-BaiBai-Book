@@ -4,7 +4,7 @@ import * as context from '@/st/context';
 import type { STContext, STMessage } from '@/st/context';
 import { memory } from './store';
 import { createEmptyMemory, type MemNpc, type MemProtagonist, type MemScene } from './types';
-import { buildStateInjectionText, crossDaySpanWithRelative, renderHistoryNodesWithRelative, type ViewNode } from './inject';
+import { buildHistoryInjectionText, buildStateInjectionText, crossDaySpanWithRelative, renderHistoryNodesWithRelative, type ViewNode } from './inject';
 
 function useChat(chat: STMessage[]) {
   const ctx = {
@@ -241,5 +241,50 @@ describe('角色属性细粒度注入测试', () => {
     expect(crossDaySpanWithRelative('2026/7/10 10:00', '2026/7/13 18:00', now)).toBe(
       '2026/7/10 10:00(大前天·周五) - 2026/7/13 18:00(今天·周一)',
     );
+  });
+  it('控制历史摘要相对时间开关 relativeTime', () => {
+    const chat: STMessage[] = [
+      {
+        name: 'User',
+        is_user: true,
+        is_system: false,
+        mes: '你好',
+      },
+      {
+        name: 'Assistant',
+        is_user: false,
+        is_system: true,
+        mes: '<bbs_start>2026/7/10 10:00</bbs_start>主角在调查。<bbs_end>2026/7/10 12:00</bbs_end>',
+        extra: {
+          bbs_leaf: {
+            id: 'leaf-1',
+            text: '主角在调查。',
+            timeStart: '2026/7/10 10:00',
+            timeEnd: '2026/7/10 12:00',
+            timeLabel: '2026/7/10 10:00 - 2026/7/10 12:00',
+            createdAt: 1,
+            delta: { summary: '主角在调查。' },
+          },
+        },
+      },
+      {
+        name: 'Assistant',
+        is_user: false,
+        is_system: false,
+        mes: '<bbs_start>2026/7/11 10:00</bbs_start>最新剧情。<bbs_end>2026/7/11 12:00</bbs_end>',
+      },
+    ];
+    useChat(chat);
+
+    // 默认开启: 带相对标签（昨天）
+    settings.apiSettings.injection.relativeTime = true;
+    const textWithRel = buildHistoryInjectionText();
+    expect(textWithRel).toContain('昨天');
+
+    // 关闭开关: 仅固定年月日，不带相对标签
+    settings.apiSettings.injection.relativeTime = false;
+    const textWithoutRel = buildHistoryInjectionText();
+    expect(textWithoutRel).not.toContain('昨天');
+    expect(textWithoutRel).toContain('【2026/7/10 10:00 - 12:00】主角在调查。');
   });
 });

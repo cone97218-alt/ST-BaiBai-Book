@@ -1,3 +1,4 @@
+import { apiSettings } from '@/api/settings';
 import { derivedMeta, memory } from '@/memory/store';
 import { getContext } from '@/st/context';
 import { PLUGIN_VERSION } from '@/version';
@@ -382,7 +383,10 @@ async function registerMacros(): Promise<{ macros: boolean; parameterized: boole
           category: categoryChat,
           description: '返回与正常记忆注入相同、已跳过滑动窗口的历史剧情文本。',
           exampleUsage: ['{{bbsInjectedHistory}}'],
-          handler: () => macroSafe(() => getInjectedHistory().relativeText),
+          handler: () => macroSafe(() => {
+            const h = getInjectedHistory();
+            return apiSettings.injection.relativeTime ? h.relativeText : h.text;
+          }),
         }],
         ['bbsVar', {
           category: categoryVariable,
@@ -432,7 +436,10 @@ async function registerMacros(): Promise<{ macros: boolean; parameterized: boole
       ['bbsState', () => macroSafe(() => getSnapshot().state), '返回柏宝书当前状态 JSON。'],
       ['bbsSnapshot', () => macroSafe(() => getSnapshot()), '返回柏宝书当前完整状态快照 JSON。'],
       ['bbsHistory', () => macroSafe(() => getHistory().relativeText), '返回柏宝书带相对时间的压缩历史剧情文本。'],
-      ['bbsInjectedHistory', () => macroSafe(() => getInjectedHistory().relativeText), '返回与正常记忆注入相同、已跳过滑动窗口的历史剧情文本。'],
+      ['bbsInjectedHistory', () => macroSafe(() => {
+        const h = getInjectedHistory();
+        return apiSettings.injection.relativeTime ? h.relativeText : h.text;
+      }), '返回与正常记忆注入相同、已跳过滑动窗口的历史剧情文本。'],
     ];
     for (const [name, handler, description] of stableMacros) {
       legacyModule.MacrosParser.registerMacro(name, handler, description);

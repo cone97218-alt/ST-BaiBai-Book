@@ -320,7 +320,9 @@ export function buildHistoryInjectionText(): string {
   // 注入路径带相对时间前缀;参照点 = 故事内最新时间(读正文标签,不受是否已摘影响)
   // 首尾私密简报框定,避免主模型把摘要当成要复述/输出的模板
   const header = resolveBriefingPrompt(apiSettings.prompts.historyHeader, '[历史剧情摘要]');
-  const body = renderHistoryNodesWithRelative(sums, latestStoryTime(chat));
+  const body = apiSettings.injection.relativeTime
+    ? renderHistoryNodesWithRelative(sums, latestStoryTime(chat))
+    : renderHistoryNodes(sums);
   return buildBriefingBlock(header, body);
 }
 

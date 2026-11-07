@@ -446,6 +446,10 @@ function buildRecallText(
 function fmtStoryTimeHead(storyTime: string, now: string): string {
   const t = storyTime.trim();
   if (!t) return '';
+  if (!apiSettings.injection.relativeTime) {
+    const shown = compactTimeLabel(t);
+    return shown ? `【${shown}】` : '';
+  }
   const { start: spanStart, end: spanEnd } = splitTimeLabel(t);
   const span = crossDaySpanWithRelative(spanStart ?? '', spanEnd ?? '', now);
   if (span) return `【${span}】`;
@@ -462,6 +466,7 @@ function fmtStoryTimeHead(storyTime: string, now: string): string {
 function fmtChunk(h: RankedHit, body: string, bodyHasInlineTime: boolean, selfScope: string | null, now: string): string {
   const src = `[${sourceLabel(h, selfScope)}]`;
   if (bodyHasInlineTime) {
+    if (!apiSettings.injection.relativeTime) return `${src} ${body}`;
     // 全文自身保留原始起止时间标签，但仍需在全文前补充相对时间，
     // 避免全文档与摘要档在时间感知上表现不一致。
     const { start: spanStart, end: spanEnd } = splitTimeLabel((h.storyTime || '').trim());

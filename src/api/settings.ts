@@ -227,6 +227,8 @@ export interface InjectionSections {
   items: boolean;
   /** 场景信息(当前地点+祖先链+其他已知地点);关闭后 NPC/物品随之不注入 */
   scenes: boolean;
+  /** 历史摘要是否启用相对时间推断(昨天/前天/N天前等);关闭后仅输出固定的年月日时间 */
+  relativeTime: boolean;
 }
 
 export interface ApiSettings {
@@ -403,6 +405,7 @@ function defaults(): ApiSettings {
       npcAffinity: true,
       items: true,
       scenes: true,
+      relativeTime: true,
     },
     keepRecent: 3,
     excludedChars: [],
@@ -503,6 +506,7 @@ function normalize(raw: unknown): ApiSettings {
     npcAffinity: typeof ri.npcAffinity === 'boolean' ? ri.npcAffinity : true,
     items: typeof ri.items === 'boolean' ? ri.items : true,
     scenes: typeof ri.scenes === 'boolean' ? ri.scenes : true,
+    relativeTime: typeof ri.relativeTime === 'boolean' ? ri.relativeTime : true,
   };
   // vector 同为嵌套对象(且内含子对象),逐层兜底,老数据缺字段时回退默认。
   // 注:旧结构曾有 vector.channels + {channel,model};扁平化后弃用,逐角色按 url/key/model 兜底,

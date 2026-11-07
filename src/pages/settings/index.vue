@@ -1074,6 +1074,12 @@ function exportPublicApiDocument() {
         </label>
         <p class="bbs-field-hint">兼容角色卡自带的变量系统。开启后仍会分析、保存并在柏宝书内展示物品、角色、场景、计划和变量,但不再把当前状态注入主模型(下方各块开关也随之不生效),也不再向后续楼层正文写入物品/变量变动旁注。已有楼层中的旁注不会主动清理;场景页的「前往」功能不受影响。</p>
 
+        <label class="bbs-switch-row">
+          <span class="bbs-field-label">启用相对时间标签</span>
+          <input v-model="apiSettings.injection.relativeTime" type="checkbox" class="bbs-checkbox" />
+        </label>
+        <p class="bbs-field-hint">历史剧情摘要中的时间推断。开启后会在绝对时间前附加“昨天/前天/N天前/周几”等相对标签，便于日常细水长流剧情感知距离；<strong>若你的剧情经常发生跨天跳跃（Time Skip），建议关闭此项</strong>，此时将只提供固定的年月日与时刻，避免因基准时差误导 AI。</p>
+
         <hr class="bbs-rule" />
 
         <label class="bbs-switch-row">
