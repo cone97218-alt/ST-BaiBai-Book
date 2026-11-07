@@ -1943,4 +1943,11 @@ export function bindEngine(): void {
     () => apiSettings.summaryOnlyMode,
     () => refreshInjection(),
   );
+
+  // 注入设置切换(如相对时间开关、主角/NPC字段勾选)后立即刷新持久化的 ST 提示槽
+  watch(
+    () => apiSettings.injection,
+    () => refreshInjection(),
+    { deep: true },
+  );
 }
